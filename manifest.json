@@ -1,0 +1,31 @@
+{
+  "manifest_version": 3,
+  "name": "AutoTweeter",
+  "version": "1.0",
+  "description": "Schedules and posts images to X.com with a user-defined delay.",
+  "permissions": [
+    "storage",
+    "alarms",
+    "tabs"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://x.com/*"],
+      "js": ["content.js"],
+      "css": ["content.css"]
+    }
+  ],
+  "options_page": "options.html",
+  "action": {
+    "default_popup": "options.html",
+    "default_title": "AutoTweeter Settings"
+  },
+  "icons": {
+    "16": "images/icon16.png",
+    "48": "images/icon48.png",
+    "128": "images/icon128.png"
+  }
+}

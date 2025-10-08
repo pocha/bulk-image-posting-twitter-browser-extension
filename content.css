@@ -1,0 +1,96 @@
+:root {
+  --autotweeter-bg-light: #ffffff;
+  --autotweeter-bg-dark: #1e293b; /* slate-800 */
+  --autotweeter-text-light: #0f172a; /* slate-900 */
+  --autotweeter-text-dark: #f1f5f9; /* slate-100 */
+  --autotweeter-border-light: #e2e8f0; /* slate-200 */
+  --autotweeter-border-dark: #334155; /* slate-700 */
+  --autotweeter-primary-color: #1DA1F2;
+  --autotweeter-primary-hover: #0c85d0;
+}
+
+#autotweeter-helper {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  width: 320px;
+  background-color: var(--autotweeter-bg-light);
+  color: var(--autotweeter-text-light);
+  border: 1px solid var(--autotweeter-border-light);
+  border-radius: 12px;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  z-index: 10000;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  display: flex;
+  flex-direction: column;
+  padding: 16px;
+  transition: background-color 0.3s, color 0.3s, border-color 0.3s;
+}
+
+/* Dark mode support for X.com's specific themes */
+html[style*="background-color: rgb(0, 0, 0);"] #autotweeter-helper, 
+html[style*="background-color: rgb(21, 32, 43);"] #autotweeter-helper {
+  background-color: var(--autotweeter-bg-dark);
+  color: var(--autotweeter-text-dark);
+  border-color: var(--autotweeter-border-dark);
+}
+
+#autotweeter-helper h3 {
+  margin: 0 0 12px;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--autotweeter-primary-color);
+  text-align: center;
+}
+
+#autotweeter-image-preview {
+  width: 100%;
+  max-height: 220px;
+  object-fit: cover;
+  border-radius: 8px;
+  margin-bottom: 12px;
+  border: 1px solid var(--autotweeter-border-light);
+}
+
+html[style*="background-color: rgb(0, 0, 0);"] #autotweeter-image-preview,
+html[style*="background-color: rgb(21, 32, 43);"] #autotweeter-image-preview {
+    border-color: var(--autotweeter-border-dark);
+}
+
+#autotweeter-tweet-text {
+  width: 100%;
+  height: 120px;
+  border: 1px solid var(--autotweeter-border-light);
+  background-color: var(--autotweeter-bg-light);
+  color: var(--autotweeter-text-light);
+  border-radius: 8px;
+  padding: 10px;
+  margin-bottom: 12px;
+  resize: vertical;
+  font-size: 14px;
+  transition: background-color 0.3s, color 0.3s, border-color 0.3s;
+}
+
+html[style*="background-color: rgb(0, 0, 0);"] #autotweeter-tweet-text,
+html[style*="background-color: rgb(21, 32, 43);"] #autotweeter-tweet-text {
+  background-color: #253341; /* A slightly lighter dark shade for contrast */
+  color: var(--autotweeter-text-dark);
+  border-color: var(--autotweeter-border-dark);
+}
+
+#autotweeter-post-button {
+  background-color: var(--autotweeter-primary-color);
+  color: #ffffff;
+  border: none;
+  border-radius: 9999px; /* pill shape */
+  padding: 12px;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  text-align: center;
+  transition: background-color 0.2s ease-in-out;
+}
+
+#autotweeter-post-button:hover {
+  background-color: var(--autotweeter-primary-hover);
+}
