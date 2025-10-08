@@ -47,7 +47,7 @@ function saveImage(imageBlob, text) {
 
 function saveOptions() {
     const tweetText = document.getElementById('tweet-text').value;
-    const tweetDelay = document.getElementById('delay-minutes').value;
+    const tweetDelay = document.getElementById('delay-seconds').value; // Changed from delay-minutes
     chrome.storage.sync.set({ tweetText, tweetDelay }, () => {
         const status = document.getElementById('status');
         status.textContent = 'Settings saved!';
@@ -56,9 +56,9 @@ function saveOptions() {
 }
 
 function restoreOptions() {
-    chrome.storage.sync.get({ tweetText: '', tweetDelay: 15 }, (items) => {
+    chrome.storage.sync.get({ tweetText: '', tweetDelay: 60 }, (items) => { // Default to 60 seconds
         document.getElementById('tweet-text').value = items.tweetText;
-        document.getElementById('delay-minutes').value = items.tweetDelay;
+        document.getElementById('delay-seconds').value = items.tweetDelay;
     });
 }
 
@@ -123,17 +123,18 @@ document.addEventListener('DOMContentLoaded', async () => {
         e.preventDefault();
         saveOptions(); // Save settings first
 
-        // Then, send the message to start the tweeting process
-        chrome.runtime.sendMessage({ action: "startTweeting" }, (response) => {
-            const status = document.getElementById('status');
+        // Send a message to start tweeting immediately
+        chrome.runtime.sendMessage({ action: "startTweeting", immediate: true }, (response) => {
             if (chrome.runtime.lastError) {
                 console.error("Error starting tweeting:", chrome.runtime.lastError.message);
-                status.textContent = 'Error: Could not start tweeting. ' + chrome.runtime.lastError.message;
+                // Maybe show an alert or keep the popup open to show the error
+                const status = document.getElementById('status');
+                status.textContent = 'Error: ' + chrome.runtime.lastError.message;
             } else {
                 console.log(response.status);
-                status.textContent = 'Settings saved and tweeting started!';
+                // Close the popup on success
+                window.close();
             }
-            setTimeout(() => { status.textContent = ''; }, 3000);
         });
     });
 
