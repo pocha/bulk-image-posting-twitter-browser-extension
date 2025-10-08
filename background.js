@@ -117,28 +117,30 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
             pendingTweets.delete(tabId); // Clean up on error
         };
         reader.readAsDataURL(imageRecord.data);
-            } else {
-                console.log("Message sent to content script:", response.status);
-            }
-        });
-        
-        // Clean up the pending record for this tab.
-        pendingTweets.delete(tabId);
-    }
 });
 
 // Main listener for messages from other parts of the extension
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.action === "startTweeting") {
         chrome.storage.sync.get({ tweetDelay: 15 }, (items) => {
-            const delay = parseInt(items.tweetDelay, 10);
-            // Create a periodic alarm.
+            const delayInSeconds = parseInt(items.tweetDelay, 10);
+            const delayInMinutes = delayInSeconds / 60; // Convert to minutes for the alarm API
+
+            // Create or update the periodic alarm
             chrome.alarms.create("tweetAlarm", {
-                delayInMinutes: delay,
-                periodInMinutes: delay
+                delayInMinutes: delayInMinutes,
+                periodInMinutes: delayInMinutes
             });
-            console.log(`Tweeting alarm set. Delay: ${delay} minutes.`);
-            sendResponse({ status: "Alarm set" });
+
+            console.log(`Tweeting alarm set. Delay: ${delayInSeconds} seconds.`);
+
+            // If an immediate tweet is requested, trigger the handler now without waiting for the alarm.
+            if (message.immediate) {
+                console.log("Immediate tweet requested, handling now.");
+                handleAlarm(); // Trigger the first tweet immediately
+            }
+
+            sendResponse({ status: "Tweeting process initiated." });
         });
         return true; // Indicates an async response.
     }
