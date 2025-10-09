@@ -84,30 +84,6 @@ The extension will:
 - Increase the delay value for each image
 - Twitter may rate-limit rapid posting
 
-## File Structure
-
-```
-
-twitter-auto-poster/
-├── manifest.json
-├── popup.html
-├── popup.js
-├── background.js
-├── content.js
-├── icon16.png
-├── icon48.png
-└── icon128.png
-
-```
-
-## Technical Details
-
-- **Manifest Version**: 3
-- **Permissions**: activeTab, scripting, tabs
-- **Host Permissions**: twitter.com, x.com
-- **Content Scripts**: Runs on Twitter/X pages
-- **Background**: Service worker for handling posting logic
-
 ## Privacy
 
 This extension:
@@ -127,7 +103,3 @@ This extension:
 ## Updates
 
 If Twitter changes their UI and the extension stops working, the selectors in `background.js` may need to be updated to match the new UI structure.
-
-```
-
-```
