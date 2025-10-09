@@ -12,31 +12,7 @@ A Chrome extension that allows you to automatically post multiple images to Twit
 
 ## Installation Steps
 
-### 1. Create Extension Files
-
-Create a new folder called `twitter-auto-poster` and create the following files inside it:
-
-**manifest.json** - Main extension configuration
-**popup.html** - Extension popup interface
-**popup.js** - Popup logic and UI handling
-**background.js** - Background service worker for posting
-**content.js** - Content script for Twitter pages
-
-(Copy the code from each artifact above into these files)
-
-### 2. Create Icon Images
-
-You need to create three icon images with these dimensions:
-
-- `icon16.png` (16x16 pixels)
-- `icon48.png` (48x48 pixels)
-- `icon128.png` (128x128 pixels)
-
-You can create simple icon images using any image editor, or use a Twitter bird logo. Place these in the same folder as your other files.
-
-**Quick tip**: You can create a simple colored square as a placeholder icon if needed.
-
-### 3. Load Extension in Chrome
+### 1. Load Extension in Chrome
 
 1. Open Chrome and navigate to `chrome://extensions/`
 2. Enable "Developer mode" (toggle in top-right corner)
@@ -44,7 +20,7 @@ You can create simple icon images using any image editor, or use a Twitter bird 
 4. Select your `twitter-auto-poster` folder
 5. The extension should now appear in your extensions list
 
-### 4. Pin the Extension
+### 2. Pin the Extension
 
 1. Click the puzzle piece icon in Chrome toolbar
 2. Find "Twitter Auto Poster" and click the pin icon
