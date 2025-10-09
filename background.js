@@ -1,164 +1,216 @@
-// background.js
-
-const DB_NAME = "AutoTweeterDB";
-const DB_VERSION = 1;
-const IMAGE_STORE_NAME = "images";
-
-let db;
-// Use a map to hold data for tabs that are in the process of being opened.
-// This avoids race conditions.
-const pendingTweets = new Map();
-
-// --- 1. Database Management ---
-
-function openDB() {
-    return new Promise((resolve, reject) => {
-        if (db) return resolve(db);
-        const request = indexedDB.open(DB_NAME, DB_VERSION);
-        request.onerror = (event) => reject("Database error: " + event.target.errorCode);
-        request.onupgradeneeded = (event) => {
-            const dbInstance = event.target.result;
-            if (!dbInstance.objectStoreNames.contains(IMAGE_STORE_NAME)) {
-                const store = dbInstance.createObjectStore(IMAGE_STORE_NAME, { keyPath: "id", autoIncrement: true });
-                store.createIndex("posted", "posted", { unique: false });
-            }
-        };
-        request.onsuccess = (event) => {
-            db = event.target.result;
-            resolve(db);
-        };
-    });
-}
-
-function getNextImage() {
-    return new Promise(async (resolve, reject) => {
-        await openDB();
-        const transaction = db.transaction([IMAGE_STORE_NAME], "readonly");
-        const store = transaction.objectStore(IMAGE_STORE_NAME);
-        const request = store.openCursor(); // Gets the first available record
-        request.onsuccess = (event) => {
-            const cursor = event.target.result;
-            resolve(cursor ? cursor.value : null);
-        };
-        request.onerror = (event) => reject("Error reading cursor: " + event.target.errorCode);
-    });
-}
-
-function deleteImage(imageId) {
-    return new Promise(async (resolve, reject) => {
-        await openDB();
-        const transaction = db.transaction([IMAGE_STORE_NAME], "readwrite");
-        const store = transaction.objectStore(IMAGE_STORE_NAME);
-        const request = store.delete(imageId);
-        request.onsuccess = () => {
-            console.log(`Image ${imageId} deleted.`);
-            resolve();
-        };
-        request.onerror = (event) => reject("Error deleting image: " + event.target.errorCode);
-    });
-}
-
-// --- 2. Alarm and Tab Management ---
-
-async function handleAlarm(alarm) {
-    if (alarm.name !== "tweetAlarm") return;
-
-    console.log("Tweet alarm triggered.");
-    const imageRecord = await getNextImage();
-
-    if (imageRecord) {
-        console.log("Found image to post:", imageRecord);
-        try {
-            const tab = await chrome.tabs.create({ url: "https://x.com/compose/post", active: true });
-            // Store the image data temporarily, keyed by the new tab's ID.
-            pendingTweets.set(tab.id, imageRecord);
-        } catch (error) {
-            console.error("Error creating tab:", error);
-        }
-    } else {
-        console.log("No images left to post. Stopping alarm.");
-        chrome.alarms.clear("tweetAlarm");
-    }
-}
-
-// --- 3. Event Listeners ---
-
-// Listener for when a tab is updated (e.g., finishes loading)
-chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-    // Check if this is the tab we're waiting for and if it has finished loading.
-    if (changeInfo.status === 'complete' && pendingTweets.has(tabId)) {
-        const imageRecord = pendingTweets.get(tabId);
-        
-        // Convert the Blob to a Data URL to pass it to the content script
-        const reader = new FileReader();
-        reader.onload = function(event) {
-            const dataUrl = event.target.result;
-
-            // Send the data URL to the content script
-            chrome.tabs.sendMessage(tabId, {
-                action: 'postImage',
-                imageDataUrl: dataUrl, // Pass the data URL
-                tweetText: imageRecord.text,
-                imageId: imageRecord.id,
-                imageType: imageRecord.data.type, // Pass mime type
-                imageName: imageRecord.data.name || 'image.png' // Pass name, default if none
-            }, (response) => {
-                if (chrome.runtime.lastError) {
-                    console.error("Message sending failed:", chrome.runtime.lastError.message);
-                } else {
-                    console.log("Message sent to content script:", response.status);
-                }
-                // Clean up the pending record for this tab regardless
-                pendingTweets.delete(tabId);
-            });
-        };
-        reader.onerror = function(event) {
-            console.error("File reading error:", reader.error);
-            pendingTweets.delete(tabId); // Clean up on error
-        };
-        reader.readAsDataURL(imageRecord.data);
-});
-
-// Main listener for messages from other parts of the extension
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    if (message.action === "startTweeting") {
-        chrome.storage.sync.get({ tweetDelay: 15 }, (items) => {
-            const delayInSeconds = parseInt(items.tweetDelay, 10);
-            const delayInMinutes = delayInSeconds / 60; // Convert to minutes for the alarm API
+  if (message.action === "startPosting") {
+    handlePosting(message.images)
+      .then((result) => {
+        sendResponse(result)
+      })
+      .catch((error) => {
+        sendResponse({ success: false, error: error.message })
+      })
+    return true // Keep channel open for async response
+  }
+})
 
-            // Create or update the periodic alarm
-            chrome.alarms.create("tweetAlarm", {
-                delayInMinutes: delayInMinutes,
-                periodInMinutes: delayInMinutes
-            });
+async function handlePosting(images) {
+  try {
+    // Find or create Twitter tab
+    const twitterTab = await findOrCreateTwitterTab()
 
-            console.log(`Tweeting alarm set. Delay: ${delayInSeconds} seconds.`);
+    // Post each image
+    for (let i = 0; i < images.length; i++) {
+      const image = images[i]
 
-            // If an immediate tweet is requested, trigger the handler now without waiting for the alarm.
-            if (message.immediate) {
-                console.log("Immediate tweet requested, handling now.");
-                handleAlarm(); // Trigger the first tweet immediately
-            }
+      // Send status update
+      chrome.runtime.sendMessage({
+        action: "postingStatus",
+        message: `Posting tweet ${i + 1} of ${images.length}...`,
+        type: "info",
+        complete: false,
+      })
 
-            sendResponse({ status: "Tweeting process initiated." });
-        });
-        return true; // Indicates an async response.
+      // Execute posting in content script
+      await chrome.scripting.executeScript({
+        target: { tabId: twitterTab.id },
+        func: postTweet,
+        args: [image.dataUrl, image.text],
+      })
+
+      // Wait for delay before next post (except for last image)
+      if (i < images.length - 1) {
+        await sleep(image.delay * 1000)
+      }
     }
-    
-    if (message.action === "tweetPosted") {
-        console.log(`Received confirmation for image ${message.imageId}. Deleting.`);
-        deleteImage(message.imageId)
-            .then(() => sendResponse({ status: "Image deleted" }))
-            .catch(err => sendResponse({ status: "Deletion failed", error: err }));
-        return true; // Indicates an async response.
+
+    // Send completion status
+    chrome.runtime.sendMessage({
+      action: "postingStatus",
+      message: "All tweets posted successfully!",
+      type: "success",
+      complete: true,
+    })
+
+    return { success: true }
+  } catch (error) {
+    chrome.runtime.sendMessage({
+      action: "postingStatus",
+      message: "Error: " + error.message,
+      type: "error",
+      complete: true,
+    })
+    return { success: false, error: error.message }
+  }
+}
+
+async function findOrCreateTwitterTab() {
+  // Check if Twitter/X tab is already open
+  const tabs = await chrome.tabs.query({})
+  const twitterTab = tabs.find((tab) => tab.url && (tab.url.includes("twitter.com") || tab.url.includes("x.com")))
+
+  if (twitterTab) {
+    // Activate existing tab
+    await chrome.tabs.update(twitterTab.id, { active: true })
+    return twitterTab
+  } else {
+    // Create new Twitter tab
+    return await chrome.tabs.create({ url: "https://twitter.com/home" })
+  }
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+// This function will be injected into the Twitter page
+async function postTweet(imageDataUrl, tweetText) {
+  // Helper function to wait for element
+  function waitForElement(selector, timeout = 10000) {
+    return new Promise((resolve, reject) => {
+      const startTime = Date.now()
+
+      const checkElement = () => {
+        const element = document.querySelector(selector)
+        if (element) {
+          resolve(element)
+        } else if (Date.now() - startTime > timeout) {
+          reject(new Error(`Timeout waiting for element: ${selector}`))
+        } else {
+          setTimeout(checkElement, 100)
+        }
+      }
+
+      checkElement()
+    })
+  }
+
+  // Helper to simulate user interaction
+  function simulateClick(element) {
+    element.click()
+    element.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }))
+  }
+
+  try {
+    // Wait for page to load
+    await new Promise((resolve) => setTimeout(resolve, 2000))
+
+    // Find and click the tweet compose button
+    const composeSelectors = [
+      'a[data-testid="SideNav_NewTweet_Button"]',
+      'a[href="/compose/tweet"]',
+      '[data-testid="SideNav_NewTweet_Button"]',
+    ]
+
+    let composeButton = null
+    for (const selector of composeSelectors) {
+      composeButton = document.querySelector(selector)
+      if (composeButton) break
     }
-});
 
-// Listener for when the alarm is triggered
-chrome.alarms.onAlarm.addListener(handleAlarm);
+    if (composeButton) {
+      simulateClick(composeButton)
+      await new Promise((resolve) => setTimeout(resolve, 1000))
+    }
 
-// Initialize DB on installation
-chrome.runtime.onInstalled.addListener(() => {
-    console.log("AutoTweeter extension installed/updated.");
-    openDB();
-});
+    // Find the tweet text area
+    const textAreaSelectors = [
+      '[data-testid="tweetTextarea_0"]',
+      'div[role="textbox"][data-testid="tweetTextarea_0"]',
+      "div.public-DraftEditor-content",
+    ]
+
+    let textArea = null
+    for (const selector of textAreaSelectors) {
+      textArea = await waitForElement(selector, 5000).catch(() => null)
+      if (textArea) break
+    }
+
+    if (!textArea) {
+      throw new Error("Could not find tweet text area")
+    }
+
+    // Enter tweet text
+    if (tweetText) {
+      textArea.focus()
+      textArea.textContent = tweetText
+      textArea.dispatchEvent(new Event("input", { bubbles: true }))
+      await new Promise((resolve) => setTimeout(resolve, 500))
+    }
+
+    // Convert data URL to file
+    const response = await fetch(imageDataUrl)
+    const blob = await response.blob()
+    const file = new File([blob], "image.jpg", { type: "image/jpeg" })
+
+    // Find file input for images
+    const fileInputSelectors = ['input[data-testid="fileInput"]', 'input[type="file"][accept*="image"]']
+
+    let fileInput = null
+    for (const selector of fileInputSelectors) {
+      fileInput = document.querySelector(selector)
+      if (fileInput) break
+    }
+
+    if (!fileInput) {
+      throw new Error("Could not find file input")
+    }
+
+    // Create DataTransfer and add file
+    const dataTransfer = new DataTransfer()
+    dataTransfer.items.add(file)
+    fileInput.files = dataTransfer.files
+
+    // Trigger change event
+    fileInput.dispatchEvent(new Event("change", { bubbles: true }))
+
+    // Wait for image to upload
+    await new Promise((resolve) => setTimeout(resolve, 3000))
+
+    // Find and click post button
+    const postButtonSelectors = [
+      '[data-testid="tweetButtonInline"]',
+      '[data-testid="tweetButton"]',
+      'div[role="button"][data-testid="tweetButton"]',
+    ]
+
+    let postButton = null
+    for (const selector of postButtonSelectors) {
+      postButton = await waitForElement(selector, 5000).catch(() => null)
+      if (postButton && !postButton.disabled) break
+    }
+
+    if (!postButton) {
+      throw new Error("Could not find post button")
+    }
+
+    // Click post button
+    await new Promise((resolve) => setTimeout(resolve, 1000))
+    simulateClick(postButton)
+
+    // Wait for tweet to post
+    await new Promise((resolve) => setTimeout(resolve, 3000))
+
+    return { success: true }
+  } catch (error) {
+    console.error("Error posting tweet:", error)
+    throw error
+  }
+}

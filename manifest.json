@@ -1,26 +1,20 @@
 {
   "manifest_version": 3,
-  "name": "AutoTweeter",
+  "name": "Twitter Auto Poster",
   "version": "1.0",
-  "description": "Schedules and posts images to X.com with a user-defined delay.",
-  "permissions": [
-    "storage",
-    "alarms",
-    "tabs"
-  ],
+  "description": "Post multiple images to Twitter automatically with custom text",
+  "permissions": ["activeTab", "scripting", "tabs"],
+  "host_permissions": ["https://twitter.com/*", "https://x.com/*"],
+  "action": {
+    "default_popup": "popup.html"
+  },
   "background": {
     "service_worker": "background.js"
   },
   "content_scripts": [
     {
-      "matches": ["https://x.com/*"],
-      "js": ["content.js"],
-      "css": ["content.css"]
+      "matches": ["https://twitter.com/*", "https://x.com/*"],
+      "js": ["content.js"]
     }
-  ],
-  "options_page": "options.html",
-  "action": {
-    "default_popup": "options.html",
-    "default_title": "AutoTweeter Settings"
-  }
+  ]
 }
