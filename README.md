@@ -28,15 +28,36 @@ A Chrome extension that allows you to automatically post multiple images to Twit
 
 ## How to Use
 
-1. **Click the extension icon** in your Chrome toolbar
-2. **Drag and drop images** into the drop zone (or click to select files)
-3. **Enter tweet text** for each image in the provided text boxes
-4. **Set delay** (in seconds) for the pause between each post
-5. **Click "Post to Twitter"** button
-6. The extension will:
-   - Open Twitter (if not already open)
-   - Post each image with its text
-   - Wait the specified delay before posting the next image
+- **Click the extension icon** in your Chrome toolbar
+- **Common Text Template** is text which will be applied to all the tweets. You can specify regular expression to pick text from the image name.
+
+Eg. for image name `ABCAPITAL_2025-09-05_17-50-53_db7d7.png`, to get text as
+
+```
+Stock Name: ABCAPITAL
+Date: 05-09-2025
+```
+
+The input area will look like
+
+```
+regex: ^([A-Z]+)_(\d{4})-(\d{2})-(\d{2})
+Stock Name: \1
+Date: \4-\3-\2
+```
+
+The common text will be appended to individual tweet text
+
+- **Drag and drop images** into the drop zone (or click to select files)
+- **Enter tweet text** for each image in the provided text boxes
+- **Set delay** (in seconds) for the pause between each post
+- **Click "Post to Twitter"** button
+
+The extension will:
+
+- Open Twitter (if not already open)
+- Post each image with its text
+- Wait the specified delay before posting the next image
 
 ## Important Notes
 
@@ -66,6 +87,7 @@ A Chrome extension that allows you to automatically post multiple images to Twit
 ## File Structure
 
 ```
+
 twitter-auto-poster/
 ├── manifest.json
 ├── popup.html
@@ -75,6 +97,7 @@ twitter-auto-poster/
 ├── icon16.png
 ├── icon48.png
 └── icon128.png
+
 ```
 
 ## Technical Details
@@ -104,3 +127,7 @@ This extension:
 ## Updates
 
 If Twitter changes their UI and the extension stops working, the selectors in `background.js` may need to be updated to match the new UI structure.
+
+```
+
+```

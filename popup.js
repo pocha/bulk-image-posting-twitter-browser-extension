@@ -1,10 +1,18 @@
 let images = []
+let commonText = ""
 
 const dropZone = document.getElementById("dropZone")
 const fileInput = document.getElementById("fileInput")
 const imagesList = document.getElementById("imagesList")
 const postBtn = document.getElementById("postBtn")
 const statusDiv = document.getElementById("status")
+const commonTextArea = document.getElementById("commonText")
+
+// Common text change handler
+commonTextArea.addEventListener("input", (e) => {
+  commonText = e.target.value
+  renderImages() // Re-render to update previews
+})
 
 // Drop zone events
 dropZone.addEventListener("click", () => fileInput.click())
@@ -49,6 +57,60 @@ function handleFiles(files) {
   })
 }
 
+function processCommonText(filename, commonTextTemplate) {
+  if (!commonTextTemplate || !commonTextTemplate.trim()) {
+    return ""
+  }
+
+  const lines = commonTextTemplate.split("\n")
+  let result = commonTextTemplate
+
+  // Check if first line starts with "regex:"
+  if (lines[0].trim().toLowerCase().startsWith("regex:")) {
+    const regexPattern = lines[0].substring(lines[0].indexOf(":") + 1).trim()
+    const templateLines = lines.slice(1) // Rest of the lines
+
+    try {
+      const regex = new RegExp(regexPattern)
+      const match = filename.match(regex)
+
+      if (match) {
+        // Start with the template (without the regex line)
+        result = templateLines.join("\n")
+
+        // Replace \1, \2, etc. with captured groups
+        for (let i = 1; i < match.length; i++) {
+          const placeholder = "\\" + i
+          result = result.split(placeholder).join(match[i])
+        }
+      } else {
+        // No match, return template without replacements
+        result = templateLines.join("\n")
+      }
+    } catch (error) {
+      console.error("Regex error:", error)
+      // If regex is invalid, return the template as-is (without regex line)
+      result = templateLines.join("\n")
+    }
+  }
+
+  return result
+}
+
+function getFinalTweetText(image) {
+  const commonProcessed = processCommonText(image.name, commonText)
+  const imageSpecificText = image.text || ""
+
+  // Combine common text and image-specific text
+  if (commonProcessed && imageSpecificText) {
+    return commonProcessed + "\n\n" + imageSpecificText
+  } else if (commonProcessed) {
+    return commonProcessed
+  } else {
+    return imageSpecificText
+  }
+}
+
 function renderImages() {
   if (images.length === 0) {
     imagesList.innerHTML = '<div class="empty-state">No images added yet</div>'
@@ -56,17 +118,28 @@ function renderImages() {
   }
 
   imagesList.innerHTML = images
-    .map(
-      (img, index) => `
+    .map((img, index) => {
+      const finalText = getFinalTweetText(img)
+      return `
     <div class="image-item">
       <img src="${img.dataUrl}" class="image-preview" alt="${img.name}">
       <div class="image-details">
         <div class="image-name">${img.name}</div>
         <textarea 
           class="tweet-text" 
-          placeholder="Enter tweet text for this image..."
+          placeholder="Enter additional tweet text for this image..."
           data-index="${index}"
         >${img.text}</textarea>
+        ${
+          finalText
+            ? `
+        <div class="preview-section">
+          <div class="preview-label">Final Tweet Preview:</div>
+          <div class="preview-text">${finalText}</div>
+        </div>
+        `
+            : ""
+        }
         <div class="delay-label">Delay before next post (seconds):</div>
         <input 
           type="number" 
@@ -80,7 +153,7 @@ function renderImages() {
       </div>
     </div>
   `
-    )
+    })
     .join("")
 
   // Add event listeners
@@ -88,6 +161,7 @@ function renderImages() {
     textarea.addEventListener("input", (e) => {
       const index = parseInt(e.target.dataset.index)
       images[index].text = e.target.value
+      renderImages() // Re-render to update preview
     })
   })
 
@@ -127,11 +201,17 @@ postBtn.addEventListener("click", async () => {
   showStatus("Starting to post tweets...", "info")
 
   try {
+    // Prepare images with final text
+    const imagesWithFinalText = images.map((img) => ({
+      ...img,
+      finalText: getFinalTweetText(img),
+    }))
+
     // Send message to background script to handle posting
     chrome.runtime.sendMessage(
       {
         action: "startPosting",
-        images: images,
+        images: imagesWithFinalText,
       },
       (response) => {
         if (response && response.success) {

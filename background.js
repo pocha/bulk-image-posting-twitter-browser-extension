@@ -16,6 +16,9 @@ async function handlePosting(images) {
     // Find or create Twitter tab
     const twitterTab = await findOrCreateTwitterTab()
 
+    // Wait for tab to load
+    await sleep(3000)
+
     // Post each image
     for (let i = 0; i < images.length; i++) {
       const image = images[i]
@@ -29,11 +32,15 @@ async function handlePosting(images) {
       })
 
       // Execute posting in content script
-      await chrome.scripting.executeScript({
+      const result = await chrome.scripting.executeScript({
         target: { tabId: twitterTab.id },
         func: postTweet,
-        args: [image.dataUrl, image.text],
+        args: [image.dataUrl, image.finalText || image.text || ""],
       })
+
+      if (result && result[0] && result[0].result && !result[0].result.success) {
+        throw new Error(result[0].result.error || "Failed to post tweet")
+      }
 
       // Wait for delay before next post (except for last image)
       if (i < images.length - 1) {
@@ -72,7 +79,10 @@ async function findOrCreateTwitterTab() {
     return twitterTab
   } else {
     // Create new Twitter tab
-    return await chrome.tabs.create({ url: "https://twitter.com/home" })
+    const newTab = await chrome.tabs.create({ url: "https://twitter.com/home" })
+    // Wait for tab to load
+    await sleep(3000)
+    return newTab
   }
 }
 
@@ -82,41 +92,20 @@ function sleep(ms) {
 
 // This function will be injected into the Twitter page
 async function postTweet(imageDataUrl, tweetText) {
-  // Helper function to wait for element
-  function waitForElement(selector, timeout = 10000) {
-    return new Promise((resolve, reject) => {
-      const startTime = Date.now()
-
-      const checkElement = () => {
-        const element = document.querySelector(selector)
-        if (element) {
-          resolve(element)
-        } else if (Date.now() - startTime > timeout) {
-          reject(new Error(`Timeout waiting for element: ${selector}`))
-        } else {
-          setTimeout(checkElement, 100)
-        }
-      }
-
-      checkElement()
-    })
-  }
-
-  // Helper to simulate user interaction
-  function simulateClick(element) {
-    element.click()
-    element.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }))
+  function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms))
   }
 
   try {
-    // Wait for page to load
-    await new Promise((resolve) => setTimeout(resolve, 2000))
+    // Wait for page to be ready
+    await sleep(2000)
 
     // Find and click the tweet compose button
     const composeSelectors = [
       'a[data-testid="SideNav_NewTweet_Button"]',
       'a[href="/compose/tweet"]',
       '[data-testid="SideNav_NewTweet_Button"]',
+      'a[aria-label="Post"]',
     ]
 
     let composeButton = null
@@ -126,20 +115,27 @@ async function postTweet(imageDataUrl, tweetText) {
     }
 
     if (composeButton) {
-      simulateClick(composeButton)
-      await new Promise((resolve) => setTimeout(resolve, 1000))
+      composeButton.click()
+      await sleep(1500)
     }
 
     // Find the tweet text area
     const textAreaSelectors = [
-      '[data-testid="tweetTextarea_0"]',
-      'div[role="textbox"][data-testid="tweetTextarea_0"]',
-      "div.public-DraftEditor-content",
+      'div[data-testid="tweetTextarea_0"]',
+      'div[role="textbox"][contenteditable="true"]',
+      '.public-DraftEditor-content[contenteditable="true"]',
+      'div.DraftEditor-editorContainer div[contenteditable="true"]',
     ]
 
     let textArea = null
     for (const selector of textAreaSelectors) {
-      textArea = await waitForElement(selector, 5000).catch(() => null)
+      const elements = document.querySelectorAll(selector)
+      for (const el of elements) {
+        if (el.offsetParent !== null) {
+          textArea = el
+          break
+        }
+      }
       if (textArea) break
     }
 
@@ -147,70 +143,102 @@ async function postTweet(imageDataUrl, tweetText) {
       throw new Error("Could not find tweet text area")
     }
 
-    // Enter tweet text
-    if (tweetText) {
-      textArea.focus()
-      textArea.textContent = tweetText
-      textArea.dispatchEvent(new Event("input", { bubbles: true }))
-      await new Promise((resolve) => setTimeout(resolve, 500))
+    // STEP 1: Click on text area
+    textArea.click()
+    textArea.focus()
+    await sleep(500)
+
+    // STEP 2: Type text using document.execCommand
+    if (tweetText && tweetText.trim()) {
+      // Use execCommand to insert text - this properly updates React state
+      for (let i = 0; i < tweetText.length; i++) {
+        const char = tweetText[i]
+
+        if (char === "\n") {
+          // For newlines, use insertLineBreak or insertParagraph
+          document.execCommand("insertLineBreak", false)
+        } else {
+          // Insert each character using execCommand
+          document.execCommand("insertText", false, char)
+        }
+
+        // Small delay between characters to simulate human typing
+        await sleep(30)
+      }
+
+      // Wait after typing is complete
+      await sleep(1000)
     }
 
-    // Convert data URL to file
-    const response = await fetch(imageDataUrl)
-    const blob = await response.blob()
-    const file = new File([blob], "image.jpg", { type: "image/jpeg" })
-
-    // Find file input for images
-    const fileInputSelectors = ['input[data-testid="fileInput"]', 'input[type="file"][accept*="image"]']
+    // STEP 3: Find and click the image attachment button
+    const imageButtonSelectors = [
+      'div[data-testid="toolBar"] input[type="file"]',
+      'input[data-testid="fileInput"]',
+      'input[type="file"][accept*="image"]',
+    ]
 
     let fileInput = null
-    for (const selector of fileInputSelectors) {
+    for (const selector of imageButtonSelectors) {
       fileInput = document.querySelector(selector)
       if (fileInput) break
     }
 
     if (!fileInput) {
-      throw new Error("Could not find file input")
+      throw new Error("Could not find image attachment button")
     }
 
-    // Create DataTransfer and add file
+    // STEP 4: Attach the image
+    const response = await fetch(imageDataUrl)
+    const blob = await response.blob()
+    const file = new File([blob], "image.jpg", { type: "image/jpeg" })
+
     const dataTransfer = new DataTransfer()
     dataTransfer.items.add(file)
     fileInput.files = dataTransfer.files
 
-    // Trigger change event
+    // Trigger change event to upload the image
     fileInput.dispatchEvent(new Event("change", { bubbles: true }))
+    fileInput.dispatchEvent(new Event("input", { bubbles: true }))
 
     // Wait for image to upload
-    await new Promise((resolve) => setTimeout(resolve, 3000))
+    await sleep(3000)
 
-    // Find and click post button
+    // STEP 5: Find and click post button
     const postButtonSelectors = [
-      '[data-testid="tweetButtonInline"]',
-      '[data-testid="tweetButton"]',
+      'button[data-testid="tweetButtonInline"]',
+      'button[data-testid="tweetButton"]',
       'div[role="button"][data-testid="tweetButton"]',
     ]
 
     let postButton = null
     for (const selector of postButtonSelectors) {
-      postButton = await waitForElement(selector, 5000).catch(() => null)
-      if (postButton && !postButton.disabled) break
+      const buttons = document.querySelectorAll(selector)
+      for (const btn of buttons) {
+        const buttonText = btn.textContent.toLowerCase()
+        if ((buttonText.includes("post") || buttonText.includes("tweet")) && !btn.disabled) {
+          postButton = btn
+          break
+        }
+      }
+      if (postButton) break
     }
 
     if (!postButton) {
       throw new Error("Could not find post button")
     }
 
+    // Wait a bit before clicking post
+    await sleep(1000)
+
     // Click post button
-    await new Promise((resolve) => setTimeout(resolve, 1000))
-    simulateClick(postButton)
+    postButton.click()
 
     // Wait for tweet to post
-    await new Promise((resolve) => setTimeout(resolve, 3000))
+    await sleep(3000)
 
     return { success: true }
   } catch (error) {
     console.error("Error posting tweet:", error)
-    throw error
+    return { success: false, error: error.message }
   }
 }
