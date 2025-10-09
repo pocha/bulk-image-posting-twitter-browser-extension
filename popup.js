@@ -8,10 +8,16 @@ const postBtn = document.getElementById("postBtn")
 const statusDiv = document.getElementById("status")
 const commonTextArea = document.getElementById("commonText")
 
-// Common text change handler
+// Common text change handler with debounce to avoid constant re-renders
+let commonTextTimeout
 commonTextArea.addEventListener("input", (e) => {
   commonText = e.target.value
-  renderImages() // Re-render to update previews
+
+  // Debounce the preview update
+  clearTimeout(commonTextTimeout)
+  commonTextTimeout = setTimeout(() => {
+    renderImages()
+  }, 300)
 })
 
 // Drop zone events
@@ -117,6 +123,13 @@ function renderImages() {
     return
   }
 
+  // Save the currently focused element and its selection
+  const activeElement = document.activeElement
+  const isTextarea = activeElement && activeElement.classList.contains("tweet-text")
+  const activeIndex = isTextarea ? parseInt(activeElement.dataset.index) : -1
+  const selectionStart = isTextarea ? activeElement.selectionStart : 0
+  const selectionEnd = isTextarea ? activeElement.selectionEnd : 0
+
   imagesList.innerHTML = images
     .map((img, index) => {
       const finalText = getFinalTweetText(img)
@@ -161,7 +174,9 @@ function renderImages() {
     textarea.addEventListener("input", (e) => {
       const index = parseInt(e.target.dataset.index)
       images[index].text = e.target.value
-      renderImages() // Re-render to update preview
+
+      // Update preview without full re-render
+      updatePreviewOnly(index)
     })
   })
 
@@ -180,6 +195,45 @@ function renderImages() {
       updatePostButton()
     })
   })
+
+  // Restore focus and selection if there was a focused textarea
+  if (activeIndex >= 0 && activeIndex < images.length) {
+    const textareas = document.querySelectorAll(".tweet-text")
+    if (textareas[activeIndex]) {
+      textareas[activeIndex].focus()
+      textareas[activeIndex].setSelectionRange(selectionStart, selectionEnd)
+    }
+  }
+}
+
+function updatePreviewOnly(index) {
+  const finalText = getFinalTweetText(images[index])
+  const imageItems = document.querySelectorAll(".image-item")
+
+  if (imageItems[index]) {
+    const imageDetails = imageItems[index].querySelector(".image-details")
+    let previewSection = imageDetails.querySelector(".preview-section")
+
+    if (finalText) {
+      if (previewSection) {
+        // Update existing preview
+        previewSection.querySelector(".preview-text").textContent = finalText
+      } else {
+        // Create new preview
+        const delayLabel = imageDetails.querySelector(".delay-label")
+        const newPreview = document.createElement("div")
+        newPreview.className = "preview-section"
+        newPreview.innerHTML = `
+          <div class="preview-label">Final Tweet Preview:</div>
+          <div class="preview-text">${finalText}</div>
+        `
+        delayLabel.parentNode.insertBefore(newPreview, delayLabel)
+      }
+    } else if (previewSection) {
+      // Remove preview if no text
+      previewSection.remove()
+    }
+  }
 }
 
 function updatePostButton() {
@@ -208,23 +262,21 @@ postBtn.addEventListener("click", async () => {
     }))
 
     // Send message to background script to handle posting
-    chrome.runtime.sendMessage(
-      {
-        action: "startPosting",
-        images: imagesWithFinalText,
-      },
-      (response) => {
-        if (response && response.success) {
-          showStatus("All tweets posted successfully!", "success")
-          images = []
-          renderImages()
-          updatePostButton()
-        } else {
-          showStatus("Error: " + (response?.error || "Unknown error occurred"), "error")
-          postBtn.disabled = false
-        }
-      }
-    )
+    // Don't wait for response - let it run in background
+    chrome.runtime.sendMessage({
+      action: "startPosting",
+      images: imagesWithFinalText,
+    })
+
+    // Show success message and allow closing popup
+    showStatus("Posting initiated! You can close this popup. Check status updates in notifications.", "success")
+
+    // Clear images after a delay
+    setTimeout(() => {
+      images = []
+      renderImages()
+      updatePostButton()
+    }, 2000)
   } catch (error) {
     showStatus("Error: " + error.message, "error")
     postBtn.disabled = false

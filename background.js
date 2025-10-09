@@ -1,18 +1,23 @@
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === "startPosting") {
+    // Start posting in background - don't wait for response
     handlePosting(message.images)
-      .then((result) => {
-        sendResponse(result)
-      })
-      .catch((error) => {
-        sendResponse({ success: false, error: error.message })
-      })
-    return true // Keep channel open for async response
+    // Immediately respond so popup doesn't wait
+    sendResponse({ success: true, started: true })
+    return false
   }
 })
 
 async function handlePosting(images) {
   try {
+    // Show browser notification that posting has started
+    chrome.notifications.create({
+      type: "basic",
+      iconUrl: "icon48.png",
+      title: "Twitter Auto Poster",
+      message: `Starting to post ${images.length} tweet(s)...`,
+    })
+
     // Find or create Twitter tab
     const twitterTab = await findOrCreateTwitterTab()
 
@@ -23,12 +28,12 @@ async function handlePosting(images) {
     for (let i = 0; i < images.length; i++) {
       const image = images[i]
 
-      // Send status update
-      chrome.runtime.sendMessage({
-        action: "postingStatus",
+      // Show notification for each tweet
+      chrome.notifications.create({
+        type: "basic",
+        iconUrl: "icon48.png",
+        title: "Twitter Auto Poster",
         message: `Posting tweet ${i + 1} of ${images.length}...`,
-        type: "info",
-        complete: false,
       })
 
       // Execute posting in content script
@@ -48,23 +53,21 @@ async function handlePosting(images) {
       }
     }
 
-    // Send completion status
-    chrome.runtime.sendMessage({
-      action: "postingStatus",
-      message: "All tweets posted successfully!",
-      type: "success",
-      complete: true,
+    // Show completion notification
+    chrome.notifications.create({
+      type: "basic",
+      iconUrl: "icon48.png",
+      title: "Twitter Auto Poster",
+      message: "All tweets posted successfully! ✓",
     })
-
-    return { success: true }
   } catch (error) {
-    chrome.runtime.sendMessage({
-      action: "postingStatus",
+    // Show error notification
+    chrome.notifications.create({
+      type: "basic",
+      iconUrl: "icon48.png",
+      title: "Twitter Auto Poster - Error",
       message: "Error: " + error.message,
-      type: "error",
-      complete: true,
     })
-    return { success: false, error: error.message }
   }
 }
 
